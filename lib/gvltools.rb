@@ -17,6 +17,10 @@ module GVLTools
     def disable
       false
     end
+
+    def reset
+      false
+    end
   end
 
   module Timer

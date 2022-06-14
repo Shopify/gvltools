@@ -3,15 +3,17 @@
 require "bundler/gem_tasks"
 require "rake/testtask"
 
+has_ext = RUBY_ENGINE == "ruby" && RUBY_VERSION >= "3.2"
+
 Rake::TestTask.new(:test) do |t|
   t.libs << "test"
   t.libs << "lib"
-  t.test_files = FileList["test/**/test_*.rb"]
+  t.test_files = has_ext ? FileList["test/**/test_*.rb"] : FileList["test/fallback/**/test_*.rb"]
   t.warning = true
   t.verbose = true
 end
 
-if RUBY_ENGINE == "ruby" && RUBY_VERSION >= "3.2"
+if has_ext
   require "rake/extensiontask"
 
   Rake::ExtensionTask.new("gvltools") do |ext|
