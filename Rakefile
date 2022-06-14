@@ -16,7 +16,7 @@ end
 if has_ext
   require "rake/extensiontask"
 
-  Rake::ExtensionTask.new("gvltools") do |ext|
+  Rake::ExtensionTask.new("instrumentation") do |ext|
     ext.ext_dir = "ext/gvltools"
     ext.lib_dir = "lib/gvltools"
   end
