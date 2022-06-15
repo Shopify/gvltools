@@ -5,13 +5,13 @@ require "test_helper"
 module GVLTools
   class TestTimer < Minitest::Test
     def teardown
-      Timer.disable
-      Timer.reset
+      GlobalTimer.disable
+      GlobalTimer.reset
     end
 
     def test_stuff
-      assert_equal 0, Timer.monotonic_time
-      Timer.enable
+      assert_equal 0, GlobalTimer.monotonic_time
+      GlobalTimer.enable
 
       5.times.map do
         Thread.new do
@@ -21,7 +21,7 @@ module GVLTools
         end
       end.each(&:join)
 
-      refute_predicate Timer.monotonic_time, :zero?
+      refute_predicate GlobalTimer.monotonic_time, :zero?
     end
 
     private

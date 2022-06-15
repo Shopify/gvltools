@@ -5,37 +5,69 @@ require_relative "gvltools/version"
 module GVLTools
   class Error < StandardError; end
 
+  module Native
+    class << self
+      def enable_metric(_metric)
+        false
+      end
+
+      def disable_metric(_metric)
+        false
+      end
+
+      def metric_enabled?(_metric)
+        false
+      end
+    end
+  end
+
   module AbstractInstrumenter
+    TIMER_GLOBAL = 1 << 0
+    TIMER_LOCAL  = 1 << 1
+
     def enabled?
-      false
+      Native.metric_enabled?(metric)
     end
 
     def enable
-      false
+      Native.enable_metric(metric)
     end
 
     def disable
-      false
+      Native.disable_metric(metric)
     end
 
     def reset
       false
     end
-  end
 
-  module Timer
+    private
+
+    def metric
+      raise NotImplementedError
+    end
+  end
+  private_constant :AbstractInstrumenter
+
+  module GlobalTimer
     extend AbstractInstrumenter
 
     class << self
       def monotonic_time
         0
       end
+
+      def metric
+        TIMER_GLOBAL
+      end
     end
   end
-end
 
-begin
-  require "gvltools/instrumentation"
-rescue LoadError
-  # No native ext.
+  begin
+    require "gvltools/instrumentation"
+  rescue LoadError
+    # No native ext.
+  end
+
+  private_constant :Native
 end
