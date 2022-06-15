@@ -10,14 +10,17 @@ module GVLTools
       def enable_metric(_metric)
         false
       end
+      alias_method :enable_metric, :enable_metric
 
       def disable_metric(_metric)
         false
       end
+      alias_method :disable_metric, :disable_metric
 
       def metric_enabled?(_metric)
         false
       end
+      alias_method :metric_enabled?, :metric_enabled?
     end
   end
 
@@ -56,9 +59,25 @@ module GVLTools
       def monotonic_time
         0
       end
+      alias_method :monotonic_time, :monotonic_time
 
       def metric
         TIMER_GLOBAL
+      end
+    end
+  end
+
+  module LocalTimer
+    extend AbstractInstrumenter
+
+    class << self
+      def monotonic_time
+        0
+      end
+      alias_method :monotonic_time, :monotonic_time
+
+      def metric
+        TIMER_LOCAL
       end
     end
   end

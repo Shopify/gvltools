@@ -3,6 +3,13 @@ AllCops:
   NewCops: enable
   SuggestExtensions: false
 
+Lint/DuplicateMethods:
+  Exclude:
+    - lib/gvltools.rb # we need the self alias trick to avoid warnings
+
+Style/Alias:
+  EnforcedStyle: prefer_alias_method
+
 Style/StringLiterals:
   Enabled: true
   EnforcedStyle: double_quotes
@@ -25,4 +32,10 @@ Gemspec/RequiredRubyVersion:
   Enabled: false
 
 Gemspec/RequireMFA:
+  Enabled: false
+
+Metrics/AbcSize:
+  Enabled: false
+
+Metrics/MethodLength:
   Enabled: false

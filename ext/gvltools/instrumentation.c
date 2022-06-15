@@ -56,36 +56,55 @@ static VALUE gt_disable_metric(VALUE module, VALUE metric) {
     return Qtrue;
 }
 
-// GVLTools::Timer
-
-static rb_atomic_t timer_total = 0;
+// GVLTools::LocalTimer and GVLTools::GlobalTimer
+static rb_atomic_t global_timer_total = 0;
+static _Thread_local unsigned int local_timer_total = 0;
 static _Thread_local struct timespec timer_ready_at;
 
-static void gt_thread_callback(rb_event_flag_t event, const rb_internal_thread_event_data_t *event_data, void *user_data) {
+static VALUE global_timer_monotonic_time(VALUE module) {
+    return UINT2NUM(global_timer_total);
+}
 
+static VALUE global_timer_reset(VALUE module) {
+    RUBY_ATOMIC_SET(global_timer_total, 0);
+    return Qtrue;
+}
+
+static VALUE local_timer_monotonic_time(VALUE module) {
+    return UINT2NUM(local_timer_total);
+}
+
+static VALUE local_timer_reset(VALUE module) {
+    local_timer_total = 0;
+    return Qtrue;
+}
+
+// General callback
+static void gt_thread_callback(rb_event_flag_t event, const rb_internal_thread_event_data_t *event_data, void *user_data) {
     switch(event) {
         case RUBY_INTERNAL_THREAD_EVENT_READY: {
-            gt_gettime(&timer_ready_at);
+            if (ENABLED(TIMER_GLOBAL | TIMER_LOCAL)) {
+                gt_gettime(&timer_ready_at);
+            }
         }
         break;
         case RUBY_INTERNAL_THREAD_EVENT_RESUMED: {
-            struct timespec current_time;
-            gt_gettime(&current_time);
+            if (ENABLED(TIMER_GLOBAL | TIMER_LOCAL)) {
+                struct timespec current_time;
+                gt_gettime(&current_time);
+                rb_atomic_t diff = gt_time_diff_ns(timer_ready_at, current_time);
 
-            RUBY_ATOMIC_ADD(timer_total, gt_time_diff_ns(timer_ready_at, current_time));
+                if (ENABLED(TIMER_LOCAL)) {
+                    local_timer_total += diff;
+                }
+
+                if (ENABLED(TIMER_GLOBAL)) {
+                    RUBY_ATOMIC_ADD(global_timer_total, diff);
+                }
+            }
         }
         break;
     }
-}
-
-
-static VALUE timer_monotonic_time(VALUE module) {
-    return UINT2NUM(timer_total);
-}
-
-static VALUE timer_reset(VALUE module) {
-    RUBY_ATOMIC_SET(timer_total, 0);
-    return Qtrue;
 }
 
 void Init_instrumentation(void) {
@@ -97,6 +116,10 @@ void Init_instrumentation(void) {
     rb_define_singleton_method(rb_mNative, "metric_enabled?", gt_metric_enabled_p, 1);
 
     VALUE rb_mGlobalTimer = rb_const_get(rb_mGVLTools, rb_intern("GlobalTimer"));
-    rb_define_singleton_method(rb_mGlobalTimer, "reset", timer_reset, 0);
-    rb_define_singleton_method(rb_mGlobalTimer, "monotonic_time", timer_monotonic_time, 0);
+    rb_define_singleton_method(rb_mGlobalTimer, "reset", global_timer_reset, 0);
+    rb_define_singleton_method(rb_mGlobalTimer, "monotonic_time", global_timer_monotonic_time, 0);
+
+    VALUE rb_mLocalTimer = rb_const_get(rb_mGVLTools, rb_intern("LocalTimer"));
+    rb_define_singleton_method(rb_mLocalTimer, "reset", local_timer_reset, 0);
+    rb_define_singleton_method(rb_mLocalTimer, "monotonic_time", local_timer_monotonic_time, 0);
 }
