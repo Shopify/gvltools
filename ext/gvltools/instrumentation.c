@@ -9,6 +9,7 @@ static rb_internal_thread_event_hook_t *gt_hook = NULL;
 static unsigned int enabled_mask = 0;
 #define TIMER_GLOBAL        1 << 0
 #define TIMER_LOCAL         1 << 1
+#define WAITING_THREADS     1 << 2
 
 #define ENABLED(metric) (enabled_mask & (metric))
 
@@ -24,13 +25,10 @@ static unsigned int enabled_mask = 0;
 #define RUBY_INTERNAL_THREAD_EVENT_EXITED 0
 #endif
 
-// Storage
-static rb_atomic_t global_timer_total = 0;
-static THREAD_LOCAL_SPECIFIER unsigned int local_timer_total = 0;
-static THREAD_LOCAL_SPECIFIER struct timespec timer_ready_at = {0};
-
 // Common
 #define SECONDS_TO_NANOSECONDS (1000 * 1000 * 1000)
+
+static THREAD_LOCAL_SPECIFIER bool was_ready = 0;
 
 static inline void gt_gettime(struct timespec *time) {
     if (clock_gettime(CLOCK_MONOTONIC, time) == -1) {
@@ -43,13 +41,6 @@ static inline rb_atomic_t gt_time_diff_ns(struct timespec before, struct timespe
     total += (after.tv_nsec - before.tv_nsec);
     total += (after.tv_sec - before.tv_sec) * SECONDS_TO_NANOSECONDS;
     return total;
-}
-
-static void gt_reset_thread_local_state(void) {
-    // MRI can re-use native threads, so we need to reset thread local state,
-    // otherwise it will leak from one Ruby thread from another.
-    local_timer_total = 0;
-    timer_ready_at.tv_sec = timer_ready_at.tv_nsec = 0;
 }
 
 static VALUE gt_metric_enabled_p(VALUE module, VALUE metric) {
@@ -81,6 +72,10 @@ static VALUE gt_disable_metric(VALUE module, VALUE metric) {
 }
 
 // GVLTools::LocalTimer and GVLTools::GlobalTimer
+static rb_atomic_t global_timer_total = 0;
+static THREAD_LOCAL_SPECIFIER unsigned int local_timer_total = 0;
+static THREAD_LOCAL_SPECIFIER struct timespec timer_ready_at = {0};
+
 static VALUE global_timer_monotonic_time(VALUE module) {
     return UINT2NUM(global_timer_total);
 }
@@ -100,6 +95,13 @@ static VALUE local_timer_reset(VALUE module) {
 }
 
 // General callback
+static void gt_reset_thread_local_state(void) {
+    // MRI can re-use native threads, so we need to reset thread local state,
+    // otherwise it will leak from one Ruby thread from another.
+    was_ready = false;
+    local_timer_total = 0;
+}
+
 static void gt_thread_callback(rb_event_flag_t event, const rb_internal_thread_event_data_t *event_data, void *user_data) {
     switch(event) {
         case RUBY_INTERNAL_THREAD_EVENT_EXITED: {
@@ -107,12 +109,16 @@ static void gt_thread_callback(rb_event_flag_t event, const rb_internal_thread_e
         }
         break;
         case RUBY_INTERNAL_THREAD_EVENT_READY: {
+            if (!was_ready) was_ready = true;
+
             if (ENABLED(TIMER_GLOBAL | TIMER_LOCAL)) {
                 gt_gettime(&timer_ready_at);
             }
         }
         break;
         case RUBY_INTERNAL_THREAD_EVENT_RESUMED: {
+            if (!was_ready) break; // In case we registered the hook while some threads were already waiting on the GVL
+
             if (ENABLED(TIMER_GLOBAL | TIMER_LOCAL)) {
                 struct timespec current_time;
                 gt_gettime(&current_time);
