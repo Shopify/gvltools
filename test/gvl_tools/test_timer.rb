@@ -17,8 +17,8 @@ module GVLTools
 
       5.times.map do
         Thread.new do
-          10.times do |i|
-            fibonacci(i)
+          10.times do
+            cpu_work
           end
         end
       end.each(&:join)
@@ -33,17 +33,18 @@ module GVLTools
     def test_local_timer
       LocalTimer.enable
 
-      5.times.map do
+      threads = 5.times.map do
         Thread.new do
-          10.times do |i|
-            fibonacci(i)
-          end
+          cpu_work
           LocalTimer.monotonic_time
         end
-      end.each(&:join).map(&:value)
+      end
+      cpu_work
+      timers = threads.each(&:join).map(&:value)
 
-      LocalTimer.disable
-      refute_predicate LocalTimer.monotonic_time, :zero?
+      timers.each do |timer|
+        refute_predicate timer, :zero?
+      end
     end
 
     def test_local_timer_init
@@ -63,6 +64,10 @@ module GVLTools
       before = Process.clock_gettime(Process::CLOCK_MONOTONIC, :nanosecond)
       yield
       Process.clock_gettime(Process::CLOCK_MONOTONIC, :nanosecond) - before
+    end
+
+    def cpu_work
+      fibonacci(20)
     end
 
     def fibonacci(number)
