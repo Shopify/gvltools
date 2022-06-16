@@ -12,6 +12,13 @@ static unsigned int enabled_mask = 0;
 
 #define ENABLED(metric) (enabled_mask & metric)
 
+#if __STDC_VERSION__ >= 201112
+  #define THREAD_LOCAL_SPECIFIER _Thread_local
+#elif defined(__GNUC__) && !defined(RB_THREAD_LOCAL_SPECIFIER_IS_UNSUPPORTED)
+  /* note that ICC (linux) and Clang are covered by __GNUC__ */
+  #define THREAD_LOCAL_SPECIFIER __thread
+#endif
+
 // Waiting on https://github.com/ruby/ruby/pull/6029
 #ifndef RUBY_INTERNAL_THREAD_EVENT_EXITED
 #define RUBY_INTERNAL_THREAD_EVENT_EXITED 0
@@ -19,8 +26,8 @@ static unsigned int enabled_mask = 0;
 
 // Storage
 static rb_atomic_t global_timer_total = 0;
-static _Thread_local unsigned int local_timer_total = 0;
-static _Thread_local struct timespec timer_ready_at = {0};
+static THREAD_LOCAL_SPECIFIER unsigned int local_timer_total = 0;
+static THREAD_LOCAL_SPECIFIER struct timespec timer_ready_at = {0};
 
 // Common
 #define SECONDS_TO_NANOSECONDS (1000 * 1000 * 1000)
