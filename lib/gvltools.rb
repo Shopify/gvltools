@@ -26,7 +26,8 @@ module GVLTools
 
   module AbstractInstrumenter
     TIMER_GLOBAL = 1 << 0
-    TIMER_LOCAL  = 1 << 1
+    TIMER_LOCAL = 1 << 1
+    WAITING_THREADS = 1 << 2
 
     def enabled?
       Native.metric_enabled?(metric)
@@ -61,6 +62,8 @@ module GVLTools
       end
       alias_method :monotonic_time, :monotonic_time
 
+      private
+
       def metric
         TIMER_GLOBAL
       end
@@ -76,8 +79,27 @@ module GVLTools
       end
       alias_method :monotonic_time, :monotonic_time
 
+      private
+
       def metric
         TIMER_LOCAL
+      end
+    end
+  end
+
+  module WaitingThreads
+    extend AbstractInstrumenter
+
+    class << self
+      def count
+        0
+      end
+      alias_method :count, :count
+
+      private
+
+      def metric
+        WAITING_THREADS
       end
     end
   end

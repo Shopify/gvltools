@@ -4,6 +4,8 @@ require "test_helper"
 
 module GVLTools
   class TestTimer < Minitest::Test
+    include GVLToolsTestHelper
+
     def teardown
       GlobalTimer.disable
       LocalTimer.disable
@@ -50,28 +52,6 @@ module GVLTools
     def test_local_timer_init
       thread_local_time = Thread.new { LocalTimer.monotonic_time }.join.value
       assert_predicate thread_local_time, :zero?
-    end
-
-    private
-
-    def change(callback)
-      before = callback.call
-      yield
-      callback.call - before
-    end
-
-    def duration_us
-      before = Process.clock_gettime(Process::CLOCK_MONOTONIC, :nanosecond)
-      yield
-      Process.clock_gettime(Process::CLOCK_MONOTONIC, :nanosecond) - before
-    end
-
-    def cpu_work
-      fibonacci(20)
-    end
-
-    def fibonacci(number)
-      number <= 1 ? number : fibonacci(number - 1) + fibonacci(number - 2)
     end
   end
 end

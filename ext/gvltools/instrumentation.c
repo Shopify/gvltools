@@ -94,6 +94,18 @@ static VALUE local_timer_reset(VALUE module) {
     return Qtrue;
 }
 
+// Thread counts
+static rb_atomic_t waiting_threads_total = 0;
+
+static VALUE waiting_threads_count(VALUE module) {
+    return UINT2NUM(waiting_threads_total);
+}
+
+static VALUE waiting_threads_reset(VALUE module) {
+    RUBY_ATOMIC_SET(waiting_threads_total, 0);
+    return Qtrue;
+}
+
 // General callback
 static void gt_reset_thread_local_state(void) {
     // MRI can re-use native threads, so we need to reset thread local state,
@@ -111,6 +123,10 @@ static void gt_thread_callback(rb_event_flag_t event, const rb_internal_thread_e
         case RUBY_INTERNAL_THREAD_EVENT_READY: {
             if (!was_ready) was_ready = true;
 
+            if (ENABLED(WAITING_THREADS)) {
+                RUBY_ATOMIC_INC(waiting_threads_total);
+            }
+
             if (ENABLED(TIMER_GLOBAL | TIMER_LOCAL)) {
                 gt_gettime(&timer_ready_at);
             }
@@ -118,6 +134,10 @@ static void gt_thread_callback(rb_event_flag_t event, const rb_internal_thread_e
         break;
         case RUBY_INTERNAL_THREAD_EVENT_RESUMED: {
             if (!was_ready) break; // In case we registered the hook while some threads were already waiting on the GVL
+
+            if (ENABLED(WAITING_THREADS)) {
+                RUBY_ATOMIC_DEC(waiting_threads_total);
+            }
 
             if (ENABLED(TIMER_GLOBAL | TIMER_LOCAL)) {
                 struct timespec current_time;
@@ -152,4 +172,8 @@ void Init_instrumentation(void) {
     VALUE rb_mLocalTimer = rb_const_get(rb_mGVLTools, rb_intern("LocalTimer"));
     rb_define_singleton_method(rb_mLocalTimer, "reset", local_timer_reset, 0);
     rb_define_singleton_method(rb_mLocalTimer, "monotonic_time", local_timer_monotonic_time, 0);
+
+    VALUE rb_mWaitingThreads = rb_const_get(rb_mGVLTools, rb_intern("WaitingThreads"));
+    rb_define_singleton_method(rb_mWaitingThreads, "reset", waiting_threads_reset, 0);
+    rb_define_singleton_method(rb_mWaitingThreads, "count", waiting_threads_count, 0);
 }
