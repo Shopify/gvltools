@@ -10,7 +10,7 @@ static unsigned int enabled_mask = 0;
 #define TIMER_GLOBAL        1 << 0
 #define TIMER_LOCAL         1 << 1
 
-#define ENABLED(metric) (enabled_mask & metric)
+#define ENABLED(metric) (enabled_mask & (metric))
 
 #if __STDC_VERSION__ >= 201112
   #define THREAD_LOCAL_SPECIFIER _Thread_local
