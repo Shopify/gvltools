@@ -1,8 +1,12 @@
 # GVLTools
 
-Welcome to your new gem! In this directory, you'll find the files you need to be able to package up your Ruby library into a gem. Put your Ruby code in the file `lib/gvltools`. To experiment with that code, run `bin/console` for an interactive prompt.
+Set of GVL instrumentation tools
 
-TODO: Delete this and the text above, and describe your gem
+## Requirements
+
+GVLTools uses the GVL instrumentation API added in Ruby 3.2.0.
+
+To make it easier to use, on older Rubies the gem will install and expose the same methods, but they won't have any effect and all metrics will report `0`.
 
 ## Installation
 
@@ -16,7 +20,108 @@ If bundler is not being used to manage dependencies, install the gem by executin
 
 ## Usage
 
-TODO: Write usage instructions here
+GVLTools expose metric modules with a common interface, for instance `GVLTools::LocalTimer`:
+
+```ruby
+GVLTools::LocalTimer.enable
+GVLTools::LocalTimer.disable
+GVLTools::LocalTimer.enabled? # => true / false
+GVLTools::LocalTimer.reset
+```
+
+By default, all metrics are disabled.
+
+Note that using the GVL instrumentation API adds some overhead each time Ruby has to switch threads.
+In production it is recommended to only enable it on a subset of processes or for small periods of time as to not impact
+the average latency too much.
+
+The exact overhead is not yet known, early testing showed a `1-5%` slowdown on a fully saturated multi-threaded app.
+
+### LocalTimer
+
+`LocalTimer` records the overall time spent waiting on the GVL by the current thread.
+It is particularly useful to detect wether an application use too many threads, and how much latency is impacted.
+For instance as a Rack middleware:
+
+```ruby
+class GVLInstrumentationMiddleware
+  def initialize(app)
+    @app = app
+  end
+
+  def call(env)
+    before = GVLTools::LocalTimer.monotonic_time
+    response = @app.call(env)
+    diff = GVLTools::LocalTimer.monotonic_time - before
+    puts "Waited #{diff} nanoseconds on the GVL"
+    response
+  end
+end
+```
+
+### GlobalTimer
+
+`GlobalTimer` records the overall time spent waiting on the GVL by all threads combined.
+
+```ruby
+def fibonacci(number)
+  number <= 1 ? number : fibonacci(number - 1) + fibonacci(number - 2)
+end
+
+before = GVLTools::GlobalTimer.monotonic_time
+threads = 5.times.map do
+  Thread.new do
+    5.times do
+      fibonacci(30)
+    end
+  end
+end
+threads.each(&:join)
+diff = GVLTools::GlobalTimer.monotonic_time - before
+puts "Waited #{(diff / 1_000_000.0).round(1)}ms on the GVL"
+```
+
+outputs:
+
+```
+Waited 4122.8ms on the GVL
+```
+
+### WaitingThreads
+
+`WaitingThreads` records how many threads are currently waiting on the GVL to start executing code.
+
+```ruby
+def fibonacci(number)
+  number <= 1 ? number : fibonacci(number - 1) + fibonacci(number - 2)
+end
+
+Thread.new do
+  10.times do
+    sleep 0.001
+    p GVLTools::WaitingThreads.count
+  end
+end
+
+threads = 5.times.map do
+  Thread.new do
+    5.times do
+      fibonacci(30)
+    end
+  end
+end
+threads.each(&:join)
+```
+
+Outputs:
+
+```
+5
+5
+4
+```
+
+It's less precise than timers, but the instrumentation overhead is lower.
 
 ## Development
 
@@ -26,7 +131,7 @@ To install this gem onto your local machine, run `bundle exec rake install`. To 
 
 ## Contributing
 
-Bug reports and pull requests are welcome on GitHub at https://github.com/[USERNAME]/gvltools.
+Bug reports and pull requests are welcome on GitHub at https://github.com/Shopify/gvltools.
 
 ## License
 
