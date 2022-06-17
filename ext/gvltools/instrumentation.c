@@ -20,11 +20,6 @@ static unsigned int enabled_mask = 0;
   #define THREAD_LOCAL_SPECIFIER __thread
 #endif
 
-// Waiting on https://github.com/ruby/ruby/pull/6029
-#ifndef RUBY_INTERNAL_THREAD_EVENT_EXITED
-#define RUBY_INTERNAL_THREAD_EVENT_EXITED 0
-#endif
-
 // Common
 #define SECONDS_TO_NANOSECONDS (1000 * 1000 * 1000)
 
@@ -73,7 +68,7 @@ static VALUE gt_disable_metric(VALUE module, VALUE metric) {
 
 // GVLTools::LocalTimer and GVLTools::GlobalTimer
 static rb_atomic_t global_timer_total = 0;
-static THREAD_LOCAL_SPECIFIER unsigned int local_timer_total = 0;
+static THREAD_LOCAL_SPECIFIER uint64_t local_timer_total = 0;
 static THREAD_LOCAL_SPECIFIER struct timespec timer_ready_at = {0};
 
 static VALUE global_timer_monotonic_time(VALUE module) {
@@ -86,7 +81,7 @@ static VALUE global_timer_reset(VALUE module) {
 }
 
 static VALUE local_timer_monotonic_time(VALUE module) {
-    return UINT2NUM(local_timer_total);
+    return ULL2NUM(local_timer_total);
 }
 
 static VALUE local_timer_reset(VALUE module) {
