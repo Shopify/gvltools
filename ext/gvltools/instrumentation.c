@@ -111,6 +111,7 @@ static void gt_reset_thread_local_state(void) {
 
 static void gt_thread_callback(rb_event_flag_t event, const rb_internal_thread_event_data_t *event_data, void *user_data) {
     switch(event) {
+        case RUBY_INTERNAL_THREAD_EVENT_STARTED:
         case RUBY_INTERNAL_THREAD_EVENT_EXITED: {
             gt_reset_thread_local_state();
         }
