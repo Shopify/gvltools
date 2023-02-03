@@ -48,7 +48,7 @@ static VALUE gt_enable_metric(VALUE module, VALUE metric) {
     if (!gt_hook) {
         gt_hook = rb_internal_thread_add_event_hook(
             gt_thread_callback,
-            RUBY_INTERNAL_THREAD_EVENT_EXITED | RUBY_INTERNAL_THREAD_EVENT_READY | RUBY_INTERNAL_THREAD_EVENT_RESUMED,
+            RUBY_INTERNAL_THREAD_EVENT_EXITED | RUBY_INTERNAL_THREAD_EVENT_READY | RUBY_INTERNAL_THREAD_EVENT_RESUMED | RUBY_INTERNAL_THREAD_EVENT_SUSPENDED,
             NULL
         );
     }
@@ -67,26 +67,41 @@ static VALUE gt_disable_metric(VALUE module, VALUE metric) {
 }
 
 // GVLTools::LocalTimer and GVLTools::GlobalTimer
-static rb_atomic_t global_timer_total = 0;
-static THREAD_LOCAL_SPECIFIER uint64_t local_timer_total = 0;
-static THREAD_LOCAL_SPECIFIER struct timespec timer_ready_at = {0};
+static rb_atomic_t global_wait_timer_total = 0;
+static rb_atomic_t global_hold_timer_total = 0;
+static THREAD_LOCAL_SPECIFIER uint64_t local_hold_timer_total = 0;
+static THREAD_LOCAL_SPECIFIER uint64_t local_wait_timer_total = 0;
+static THREAD_LOCAL_SPECIFIER struct timespec wait_timer_ready_at = {0};
+static THREAD_LOCAL_SPECIFIER struct timespec hold_timer_ready_at = {0};
 
-static VALUE global_timer_monotonic_time(VALUE module) {
-    return UINT2NUM(global_timer_total);
+static VALUE global_wait_timer_monotonic_time(VALUE module) {
+    return UINT2NUM(global_wait_timer_total);
 }
 
 static VALUE global_timer_reset(VALUE module) {
-    RUBY_ATOMIC_SET(global_timer_total, 0);
+    RUBY_ATOMIC_SET(global_wait_timer_total, 0);
+    RUBY_ATOMIC_SET(global_hold_timer_total, 0);
     return Qtrue;
 }
 
-static VALUE local_timer_monotonic_time(VALUE module) {
-    return ULL2NUM(local_timer_total);
+static VALUE local_wait_timer_monotonic_time(VALUE module) {
+    return ULL2NUM(local_wait_timer_total);
 }
 
 static VALUE local_timer_reset(VALUE module) {
-    local_timer_total = 0;
+    local_wait_timer_total = 0;
+    local_hold_timer_total = 0;
     return Qtrue;
+}
+
+static VALUE global_hold_timer_monotonic_time(VALUE module)
+{
+    return UINT2NUM(global_hold_timer_total);
+}
+
+static VALUE local_hold_timer_monotonic_time(VALUE module)
+{
+    return ULL2NUM(local_hold_timer_total);
 }
 
 // Thread counts
@@ -106,7 +121,8 @@ static void gt_reset_thread_local_state(void) {
     // MRI can re-use native threads, so we need to reset thread local state,
     // otherwise it will leak from one Ruby thread from another.
     was_ready = false;
-    local_timer_total = 0;
+    local_wait_timer_total = 0;
+    local_hold_timer_total = 0;
 }
 
 static void gt_thread_callback(rb_event_flag_t event, const rb_internal_thread_event_data_t *event_data, void *user_data) {
@@ -124,7 +140,7 @@ static void gt_thread_callback(rb_event_flag_t event, const rb_internal_thread_e
             }
 
             if (ENABLED(TIMER_GLOBAL | TIMER_LOCAL)) {
-                gt_gettime(&timer_ready_at);
+                gt_gettime(&wait_timer_ready_at);
             }
         }
         break;
@@ -138,14 +154,34 @@ static void gt_thread_callback(rb_event_flag_t event, const rb_internal_thread_e
             if (ENABLED(TIMER_GLOBAL | TIMER_LOCAL)) {
                 struct timespec current_time;
                 gt_gettime(&current_time);
-                rb_atomic_t diff = gt_time_diff_ns(timer_ready_at, current_time);
+                rb_atomic_t diff = gt_time_diff_ns(wait_timer_ready_at, current_time);
 
                 if (ENABLED(TIMER_LOCAL)) {
-                    local_timer_total += diff;
+                    local_wait_timer_total += diff;
                 }
 
                 if (ENABLED(TIMER_GLOBAL)) {
-                    RUBY_ATOMIC_ADD(global_timer_total, diff);
+                    RUBY_ATOMIC_ADD(global_wait_timer_total, diff);
+                }
+
+                gt_gettime(&hold_timer_ready_at);
+            }
+        }
+        break;
+        case RUBY_INTERNAL_THREAD_EVENT_SUSPENDED: {
+            if (!was_ready) break; // In case we registered the hook while some threads were already waiting on the GVL
+
+            if (ENABLED(TIMER_GLOBAL | TIMER_LOCAL)) {
+                struct timespec current_time;
+                gt_gettime(&current_time);
+                rb_atomic_t diff = gt_time_diff_ns(hold_timer_ready_at, current_time);
+
+                if (ENABLED(TIMER_LOCAL)) {
+                    local_hold_timer_total += diff;
+                }
+
+                if (ENABLED(TIMER_GLOBAL)) {
+                    RUBY_ATOMIC_ADD(global_hold_timer_total, diff);
                 }
             }
         }
@@ -163,11 +199,15 @@ void Init_instrumentation(void) {
 
     VALUE rb_mGlobalTimer = rb_const_get(rb_mGVLTools, rb_intern("GlobalTimer"));
     rb_define_singleton_method(rb_mGlobalTimer, "reset", global_timer_reset, 0);
-    rb_define_singleton_method(rb_mGlobalTimer, "monotonic_time", global_timer_monotonic_time, 0);
+    rb_define_singleton_method(rb_mGlobalTimer, "monotonic_time", global_wait_timer_monotonic_time, 0);
+    rb_define_singleton_method(rb_mGlobalTimer, "monotonic_wait_time", global_wait_timer_monotonic_time, 0);
+    rb_define_singleton_method(rb_mGlobalTimer, "monotonic_hold_time", global_hold_timer_monotonic_time, 0);
 
     VALUE rb_mLocalTimer = rb_const_get(rb_mGVLTools, rb_intern("LocalTimer"));
     rb_define_singleton_method(rb_mLocalTimer, "reset", local_timer_reset, 0);
-    rb_define_singleton_method(rb_mLocalTimer, "monotonic_time", local_timer_monotonic_time, 0);
+    rb_define_singleton_method(rb_mLocalTimer, "monotonic_time", local_wait_timer_monotonic_time, 0);
+    rb_define_singleton_method(rb_mLocalTimer, "monotonic_wait_time", local_wait_timer_monotonic_time, 0);
+    rb_define_singleton_method(rb_mLocalTimer, "monotonic_hold_time", local_hold_timer_monotonic_time, 0);
 
     VALUE rb_mWaitingThreads = rb_const_get(rb_mGVLTools, rb_intern("WaitingThreads"));
     rb_define_singleton_method(rb_mWaitingThreads, "reset", waiting_threads_reset, 0);
