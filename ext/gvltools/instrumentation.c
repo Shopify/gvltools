@@ -67,16 +67,32 @@ static VALUE gt_disable_metric(VALUE module, VALUE metric) {
 }
 
 // GVLTools::LocalTimer and GVLTools::GlobalTimer
-static rb_atomic_t global_timer_total = 0;
+static rb_atomic_t global_timer_lock = 0;
+static uint64_t global_timer_total = 0;
 static THREAD_LOCAL_SPECIFIER uint64_t local_timer_total = 0;
 static THREAD_LOCAL_SPECIFIER struct timespec timer_ready_at = {0};
 
 static VALUE global_timer_monotonic_time(VALUE module) {
-    return UINT2NUM(global_timer_total);
+    uint64_t total;
+    while (1) {
+        if (0 == RUBY_ATOMIC_CAS(global_timer_lock, 0, 1)) {
+            total = global_timer_total;
+            RUBY_ATOMIC_SET(global_timer_lock, 0);
+            break;
+        }
+    }
+
+    return ULL2NUM(total);
 }
 
 static VALUE global_timer_reset(VALUE module) {
-    RUBY_ATOMIC_SET(global_timer_total, 0);
+    while (1) {
+        if (0 == RUBY_ATOMIC_CAS(global_timer_lock, 0, 1)) {
+            global_timer_total = 0;
+            RUBY_ATOMIC_SET(global_timer_lock, 0);
+            break;
+        }
+    }
     return Qtrue;
 }
 
@@ -145,7 +161,13 @@ static void gt_thread_callback(rb_event_flag_t event, const rb_internal_thread_e
                 }
 
                 if (ENABLED(TIMER_GLOBAL)) {
-                    RUBY_ATOMIC_ADD(global_timer_total, diff);
+                    while (1) {
+                        if (0 == RUBY_ATOMIC_CAS(global_timer_lock, 0, 1)) {
+                            global_timer_total += diff;
+                            RUBY_ATOMIC_SET(global_timer_lock, 0);
+                            break;
+                        }
+                    }
                 }
             }
         }
