@@ -7,11 +7,15 @@ module GVLTools
     def global_timer_has_working_interface
       assert_basic_interface(GlobalTimer)
       assert_equal 0, GlobalTimer.monotonic_time
+      assert_equal 0, GlobalTimer.monotonic_wait_time
+      assert_equal 0, GlobalTimer.monotonic_hold_time
     end
 
     def local_timer_has_working_interface
       assert_basic_interface(GlobalTimer)
       assert_equal 0, LocalTimer.monotonic_time
+      assert_equal 0, LocalTimer.monotonic_wait_time
+      assert_equal 0, LocalTimer.monotonic_hold_time
     end
 
     def waiting_threads_has_working_interface
