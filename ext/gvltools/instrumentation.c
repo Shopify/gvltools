@@ -1,7 +1,9 @@
 #include <time.h>
 #include <ruby.h>
 #include <ruby/thread.h>
-#include <ruby/atomic.h>
+#include <stdatomic.h>
+
+typedef unsigned long long counter_t;
 
 // Metrics
 static rb_internal_thread_event_hook_t *gt_hook = NULL;
@@ -31,8 +33,8 @@ static inline void gt_gettime(struct timespec *time) {
     }
 }
 
-static inline rb_atomic_t gt_time_diff_ns(struct timespec before, struct timespec after) {
-    rb_atomic_t total = 0;
+static inline counter_t gt_time_diff_ns(struct timespec before, struct timespec after) {
+    counter_t total = 0;
     total += (after.tv_nsec - before.tv_nsec);
     total += (after.tv_sec - before.tv_sec) * SECONDS_TO_NANOSECONDS;
     return total;
@@ -67,16 +69,16 @@ static VALUE gt_disable_metric(VALUE module, VALUE metric) {
 }
 
 // GVLTools::LocalTimer and GVLTools::GlobalTimer
-static rb_atomic_t global_timer_total = 0;
-static THREAD_LOCAL_SPECIFIER uint64_t local_timer_total = 0;
+static _Atomic counter_t global_timer_total = 0;
+static THREAD_LOCAL_SPECIFIER counter_t local_timer_total = 0;
 static THREAD_LOCAL_SPECIFIER struct timespec timer_ready_at = {0};
 
 static VALUE global_timer_monotonic_time(VALUE module) {
-    return UINT2NUM(global_timer_total);
+    return ULL2NUM(global_timer_total);
 }
 
 static VALUE global_timer_reset(VALUE module) {
-    RUBY_ATOMIC_SET(global_timer_total, 0);
+    global_timer_total = 0;
     return Qtrue;
 }
 
@@ -90,14 +92,14 @@ static VALUE local_timer_reset(VALUE module) {
 }
 
 // Thread counts
-static rb_atomic_t waiting_threads_total = 0;
+static _Atomic counter_t waiting_threads_total = 0;
 
 static VALUE waiting_threads_count(VALUE module) {
-    return UINT2NUM(waiting_threads_total);
+    return ULL2NUM(waiting_threads_total);
 }
 
 static VALUE waiting_threads_reset(VALUE module) {
-    RUBY_ATOMIC_SET(waiting_threads_total, 0);
+    waiting_threads_total = 0;
     return Qtrue;
 }
 
@@ -120,7 +122,7 @@ static void gt_thread_callback(rb_event_flag_t event, const rb_internal_thread_e
             if (!was_ready) was_ready = true;
 
             if (ENABLED(WAITING_THREADS)) {
-                RUBY_ATOMIC_INC(waiting_threads_total);
+                waiting_threads_total++;
             }
 
             if (ENABLED(TIMER_GLOBAL | TIMER_LOCAL)) {
@@ -132,20 +134,20 @@ static void gt_thread_callback(rb_event_flag_t event, const rb_internal_thread_e
             if (!was_ready) break; // In case we registered the hook while some threads were already waiting on the GVL
 
             if (ENABLED(WAITING_THREADS)) {
-                RUBY_ATOMIC_DEC(waiting_threads_total);
+                waiting_threads_total--;
             }
 
             if (ENABLED(TIMER_GLOBAL | TIMER_LOCAL)) {
                 struct timespec current_time;
                 gt_gettime(&current_time);
-                rb_atomic_t diff = gt_time_diff_ns(timer_ready_at, current_time);
+                counter_t diff = gt_time_diff_ns(timer_ready_at, current_time);
 
                 if (ENABLED(TIMER_LOCAL)) {
                     local_timer_total += diff;
                 }
 
                 if (ENABLED(TIMER_GLOBAL)) {
-                    RUBY_ATOMIC_ADD(global_timer_total, diff);
+                    global_timer_total += diff;
                 }
             }
         }
