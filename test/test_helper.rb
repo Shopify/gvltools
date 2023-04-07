@@ -13,7 +13,24 @@ require "gvltools"
 require "minitest/autorun"
 
 module GVLToolsTestHelper
+  def before_setup
+    @_threads = []
+  end
+
+  def after_teardown
+    @_threads.each do |thread|
+      thread.kill
+      thread.join
+    end
+  end
+
   private
+
+  def spawn_thread(&block)
+    thread = Thread.new(&block)
+    @_threads << thread
+    thread
+  end
 
   def cpu_work
     fibonacci(20)

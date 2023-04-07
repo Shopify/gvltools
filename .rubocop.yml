@@ -22,6 +22,15 @@ Style/GlobalVars:
   Exclude:
     - ext/**/extconf.rb
 
+Style/EmptyMethod:
+  Enabled: false
+
+Style/IfUnlessModifier:
+  Enabled: false
+
+Style/GuardClause:
+  Enabled: false
+
 Style/Documentation:
   Enabled: false
 

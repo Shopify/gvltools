@@ -18,7 +18,7 @@ module GVLTools
       threads = []
       begin
         threads = 3.times.map do
-          Thread.new do
+          spawn_thread do
             loop do
               cpu_work
             end
@@ -34,6 +34,56 @@ module GVLTools
       end
 
       assert_equal 0, WaitingThreads.count
+    end
+
+    def test_reset_active_counter
+      GVLTools::WaitingThreads.reset
+      GVLTools::WaitingThreads.enable
+      assert_raises GVLTools::Error do
+        GVLTools::WaitingThreads.reset
+      end
+    end
+
+    def test_enable_resets_the_counter
+      2.times do
+        GVLTools::WaitingThreads.enable
+
+        threads = 5.times.map do
+          spawn_thread do
+            5.times do
+              cpu_work
+            end
+
+            if GVLTools::WaitingThreads.enabled?
+              GVLTools::WaitingThreads.disable
+            end
+          end
+        end
+
+        threads.each(&:join)
+        assert_operator 0, :<, GVLTools::WaitingThreads.count
+        assert_operator 5, :>=, GVLTools::WaitingThreads.count
+      end
+    end
+
+    def test_disable_consistency
+      GVLTools::WaitingThreads.enable
+
+      threads = 5.times.map do
+        spawn_thread do
+          5.times do
+            cpu_work
+          end
+
+          if GVLTools::WaitingThreads.enabled?
+            GVLTools::WaitingThreads.disable
+            GVLTools::WaitingThreads.enable
+          end
+        end
+      end
+
+      threads.each(&:join)
+      assert_equal 0, GVLTools::WaitingThreads.count
     end
   end
 end
