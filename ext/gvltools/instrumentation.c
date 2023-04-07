@@ -92,6 +92,8 @@ static VALUE local_timer_reset(VALUE module) {
 }
 
 // Thread counts
+static THREAD_LOCAL_SPECIFIER counter_t waiting_threads_local_generation = 0;
+static _Atomic counter_t waiting_threads_generation = 1;
 static _Atomic counter_t waiting_threads_total = 0;
 
 static VALUE waiting_threads_count(VALUE module) {
@@ -99,6 +101,7 @@ static VALUE waiting_threads_count(VALUE module) {
 }
 
 static VALUE waiting_threads_reset(VALUE module) {
+    waiting_threads_generation++;
     waiting_threads_total = 0;
     return Qtrue;
 }
@@ -122,6 +125,7 @@ static void gt_thread_callback(rb_event_flag_t event, const rb_internal_thread_e
             if (!was_ready) was_ready = true;
 
             if (ENABLED(WAITING_THREADS)) {
+                waiting_threads_local_generation = waiting_threads_generation;
                 waiting_threads_total++;
             }
 
@@ -134,7 +138,10 @@ static void gt_thread_callback(rb_event_flag_t event, const rb_internal_thread_e
             if (!was_ready) break; // In case we registered the hook while some threads were already waiting on the GVL
 
             if (ENABLED(WAITING_THREADS)) {
-                waiting_threads_total--;
+                if (waiting_threads_local_generation == waiting_threads_generation) {
+                    // We have a small race condition window between the generation check and the decrement
+                    waiting_threads_total--;
+                }
             }
 
             if (ENABLED(TIMER_GLOBAL | TIMER_LOCAL)) {

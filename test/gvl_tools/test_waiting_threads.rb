@@ -35,5 +35,24 @@ module GVLTools
 
       assert_equal 0, WaitingThreads.count
     end
+
+    def test_reset_while_active
+      WaitingThreads.enable
+      assert_equal 0, WaitingThreads.count
+
+      count = 4
+      threads = 5.times.map do
+        Thread.new do
+          5.times do
+            cpu_work
+          end
+          count -= 1
+          GVLTools::WaitingThreads.reset if count > 0
+        end
+      end
+      threads.each(&:join)
+
+      assert_equal 0, WaitingThreads.count
+    end
   end
 end
