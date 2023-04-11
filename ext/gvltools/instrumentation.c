@@ -93,12 +93,15 @@ static VALUE local_timer_reset(VALUE module) {
 
 // Thread counts
 static _Atomic counter_t waiting_threads_total = 0;
+static _Atomic counter_t waiting_threads_current_generation = 1;
+static THREAD_LOCAL_SPECIFIER counter_t waiting_threads_ready_generation = 0;
 
 static VALUE waiting_threads_count(VALUE module) {
     return ULL2NUM(waiting_threads_total);
 }
 
 static VALUE waiting_threads_reset(VALUE module) {
+    waiting_threads_current_generation++;
     waiting_threads_total = 0;
     return Qtrue;
 }
@@ -122,6 +125,7 @@ static void gt_thread_callback(rb_event_flag_t event, const rb_internal_thread_e
             if (!was_ready) was_ready = true;
 
             if (ENABLED(WAITING_THREADS)) {
+                waiting_threads_ready_generation = waiting_threads_current_generation;
                 waiting_threads_total++;
             }
 
@@ -134,7 +138,9 @@ static void gt_thread_callback(rb_event_flag_t event, const rb_internal_thread_e
             if (!was_ready) break; // In case we registered the hook while some threads were already waiting on the GVL
 
             if (ENABLED(WAITING_THREADS)) {
-                waiting_threads_total--;
+                if (waiting_threads_ready_generation == waiting_threads_current_generation) {
+                    waiting_threads_total--;
+                }
             }
 
             if (ENABLED(TIMER_GLOBAL | TIMER_LOCAL)) {
@@ -172,6 +178,6 @@ void Init_instrumentation(void) {
     rb_define_singleton_method(rb_mLocalTimer, "monotonic_time", local_timer_monotonic_time, 0);
 
     VALUE rb_mWaitingThreads = rb_const_get(rb_mGVLTools, rb_intern("WaitingThreads"));
-    rb_define_singleton_method(rb_mWaitingThreads, "reset", waiting_threads_reset, 0);
+    rb_define_singleton_method(rb_mWaitingThreads, "_reset", waiting_threads_reset, 0);
     rb_define_singleton_method(rb_mWaitingThreads, "count", waiting_threads_count, 0);
 }

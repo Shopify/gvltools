@@ -96,7 +96,26 @@ module GVLTools
       end
       alias_method :count, :count
 
+      def enable
+        unless enabled?
+          reset
+        end
+        super
+      end
+
+      def reset
+        if enabled?
+          raise Error, "can't reset WaitingThreads counter while it is active"
+        else
+          _reset
+        end
+      end
+
       private
+
+      def _reset
+      end
+      alias_method :_reset, :_reset # to be redefined from C.
 
       def metric
         WAITING_THREADS

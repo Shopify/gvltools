@@ -18,7 +18,7 @@ module GVLTools
       GlobalTimer.enable
 
       5.times.map do
-        Thread.new do
+        spawn_thread do
           10.times do
             cpu_work
           end
@@ -28,7 +28,7 @@ module GVLTools
       GlobalTimer.disable
 
       refute_predicate GlobalTimer.monotonic_time, :zero?
-      thread_global_time = Thread.new { GlobalTimer.monotonic_time }.join.value
+      thread_global_time = spawn_thread { GlobalTimer.monotonic_time }.join.value
       assert_equal GlobalTimer.monotonic_time, thread_global_time
     end
 
@@ -36,7 +36,7 @@ module GVLTools
       LocalTimer.enable
 
       threads = 5.times.map do
-        Thread.new do
+        spawn_thread do
           cpu_work
           LocalTimer.monotonic_time
         end
@@ -50,7 +50,7 @@ module GVLTools
     end
 
     def test_local_timer_init
-      thread_local_time = Thread.new { LocalTimer.monotonic_time }.join.value
+      thread_local_time = spawn_thread { LocalTimer.monotonic_time }.join.value
       assert_predicate thread_local_time, :zero?
     end
   end
