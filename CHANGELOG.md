@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [0.3.0] - 2023-04-11
+
 - Automatically reset the `WaitingThreads` counter when enabling it (#7).
 - Disallow resetting the `WaitingThreads` counter when it is active (#7).
 
