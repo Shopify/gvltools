@@ -15,6 +15,44 @@ static unsigned int enabled_mask = 0;
 
 #define ENABLED(metric) (enabled_mask & (metric))
 
+typedef struct {
+    bool was_ready;
+    counter_t timer_total;
+    counter_t waiting_threads_ready_generation;
+    struct timespec timer_ready_at;
+} thread_local_state;
+
+#ifdef HAVE_RB_INTERNAL_THREAD_SPECIFIC_GET // 3.3+
+static int thread_storage_key = 0;
+
+static size_t thread_local_state_memsize(const void *data) {
+    return sizeof(thread_local_state);
+}
+
+static const rb_data_type_t thread_local_state_type = {
+    .wrap_struct_name = "GVLTools::ThreadLocal",
+    .function = {
+        .dmark = NULL,
+        .dfree = RUBY_DEFAULT_FREE,
+        .dsize = thread_local_state_memsize,
+    },
+    .flags = RUBY_TYPED_FREE_IMMEDIATELY | RUBY_TYPED_WB_PROTECTED,
+};
+
+static inline thread_local_state *GT_LOCAL_STATE(VALUE thread, bool allocate) {
+    thread_local_state *state = rb_internal_thread_specific_get(thread, thread_storage_key);
+    if (!state && allocate) {
+        VALUE wrapper = TypedData_Make_Struct(rb_cObject, thread_local_state, &thread_local_state_type, state);
+        rb_thread_local_aset(thread, rb_intern("__gvltools_local_state"), wrapper);
+        RB_GC_GUARD(wrapper);
+        rb_internal_thread_specific_set(thread, thread_storage_key, state);
+    }
+    return state;
+}
+
+#define GT_EVENT_LOCAL_STATE(event_data, allocate) GT_LOCAL_STATE(event_data->thread, allocate)
+#define GT_CURRENT_THREAD_LOCAL_STATE() GT_LOCAL_STATE(rb_thread_current(), true)
+#else
 #if __STDC_VERSION__ >= 201112
   #define THREAD_LOCAL_SPECIFIER _Thread_local
 #elif defined(__GNUC__) && !defined(RB_THREAD_LOCAL_SPECIFIER_IS_UNSUPPORTED)
@@ -22,10 +60,16 @@ static unsigned int enabled_mask = 0;
   #define THREAD_LOCAL_SPECIFIER __thread
 #endif
 
+static THREAD_LOCAL_SPECIFIER thread_local_state __thread_local_state = {0};
+#undef THREAD_LOCAL_SPECIFIER
+
+#define GT_LOCAL_STATE(thread) (&__thread_local_state)
+#define GT_EVENT_LOCAL_STATE(event_data, allocate) (&__thread_local_state)
+#define GT_CURRENT_THREAD_LOCAL_STATE() (&__thread_local_state)
+#endif
+
 // Common
 #define SECONDS_TO_NANOSECONDS (1000 * 1000 * 1000)
-
-static THREAD_LOCAL_SPECIFIER bool was_ready = 0;
 
 static inline void gt_gettime(struct timespec *time) {
     if (clock_gettime(CLOCK_MONOTONIC, time) == -1) {
@@ -50,7 +94,7 @@ static VALUE gt_enable_metric(VALUE module, VALUE metric) {
     if (!gt_hook) {
         gt_hook = rb_internal_thread_add_event_hook(
             gt_thread_callback,
-            RUBY_INTERNAL_THREAD_EVENT_EXITED | RUBY_INTERNAL_THREAD_EVENT_READY | RUBY_INTERNAL_THREAD_EVENT_RESUMED,
+            RUBY_INTERNAL_THREAD_EVENT_STARTED | RUBY_INTERNAL_THREAD_EVENT_EXITED | RUBY_INTERNAL_THREAD_EVENT_READY | RUBY_INTERNAL_THREAD_EVENT_RESUMED,
             NULL
         );
     }
@@ -70,8 +114,6 @@ static VALUE gt_disable_metric(VALUE module, VALUE metric) {
 
 // GVLTools::LocalTimer and GVLTools::GlobalTimer
 static _Atomic counter_t global_timer_total = 0;
-static THREAD_LOCAL_SPECIFIER counter_t local_timer_total = 0;
-static THREAD_LOCAL_SPECIFIER struct timespec timer_ready_at = {0};
 
 static VALUE global_timer_monotonic_time(VALUE module) {
     return ULL2NUM(global_timer_total);
@@ -83,18 +125,17 @@ static VALUE global_timer_reset(VALUE module) {
 }
 
 static VALUE local_timer_monotonic_time(VALUE module) {
-    return ULL2NUM(local_timer_total);
+    return ULL2NUM(GT_CURRENT_THREAD_LOCAL_STATE()->timer_total);
 }
 
 static VALUE local_timer_reset(VALUE module) {
-    local_timer_total = 0;
+    GT_CURRENT_THREAD_LOCAL_STATE()->timer_total = 0;
     return Qtrue;
 }
 
 // Thread counts
 static _Atomic counter_t waiting_threads_total = 0;
 static _Atomic counter_t waiting_threads_current_generation = 1;
-static THREAD_LOCAL_SPECIFIER counter_t waiting_threads_ready_generation = 0;
 
 static VALUE waiting_threads_count(VALUE module) {
     return ULL2NUM(waiting_threads_total);
@@ -107,38 +148,49 @@ static VALUE waiting_threads_reset(VALUE module) {
 }
 
 // General callback
-static void gt_reset_thread_local_state(void) {
-    // MRI can re-use native threads, so we need to reset thread local state,
-    // otherwise it will leak from one Ruby thread from another.
-    was_ready = false;
-    local_timer_total = 0;
-}
-
 static void gt_thread_callback(rb_event_flag_t event, const rb_internal_thread_event_data_t *event_data, void *user_data) {
     switch(event) {
-        case RUBY_INTERNAL_THREAD_EVENT_STARTED:
+        case RUBY_INTERNAL_THREAD_EVENT_STARTED: {
+            // The STARTED event is triggered from the parent thread with the GVL held
+            // so we can allocate the struct.
+            GT_EVENT_LOCAL_STATE(event_data, true);
+        }
+        break;
         case RUBY_INTERNAL_THREAD_EVENT_EXITED: {
-            gt_reset_thread_local_state();
+            thread_local_state *state = GT_EVENT_LOCAL_STATE(event_data, false);
+            if (state) {
+                // MRI can re-use native threads, so we need to reset thread local state,
+                // otherwise it will leak from one Ruby thread from another.
+                state->was_ready = false;
+                state->timer_total = 0;
+            }
         }
         break;
         case RUBY_INTERNAL_THREAD_EVENT_READY: {
-            if (!was_ready) was_ready = true;
+            thread_local_state *state = GT_EVENT_LOCAL_STATE(event_data, false);
+            if (!state) {
+                break;
+            }
+            state->was_ready = true;
 
             if (ENABLED(WAITING_THREADS)) {
-                waiting_threads_ready_generation = waiting_threads_current_generation;
+                state->waiting_threads_ready_generation = waiting_threads_current_generation;
                 waiting_threads_total++;
             }
 
             if (ENABLED(TIMER_GLOBAL | TIMER_LOCAL)) {
-                gt_gettime(&timer_ready_at);
+                gt_gettime(&state->timer_ready_at);
             }
         }
         break;
         case RUBY_INTERNAL_THREAD_EVENT_RESUMED: {
-            if (!was_ready) break; // In case we registered the hook while some threads were already waiting on the GVL
+            thread_local_state *state = GT_EVENT_LOCAL_STATE(event_data, true);
+            if (!state->was_ready)  {
+                break; // In case we registered the hook while some threads were already waiting on the GVL
+            }
 
             if (ENABLED(WAITING_THREADS)) {
-                if (waiting_threads_ready_generation == waiting_threads_current_generation) {
+                if (state->waiting_threads_ready_generation == waiting_threads_current_generation) {
                     waiting_threads_total--;
                 }
             }
@@ -146,10 +198,10 @@ static void gt_thread_callback(rb_event_flag_t event, const rb_internal_thread_e
             if (ENABLED(TIMER_GLOBAL | TIMER_LOCAL)) {
                 struct timespec current_time;
                 gt_gettime(&current_time);
-                counter_t diff = gt_time_diff_ns(timer_ready_at, current_time);
+                counter_t diff = gt_time_diff_ns(state->timer_ready_at, current_time);
 
                 if (ENABLED(TIMER_LOCAL)) {
-                    local_timer_total += diff;
+                    state->timer_total += diff;
                 }
 
                 if (ENABLED(TIMER_GLOBAL)) {
@@ -162,6 +214,10 @@ static void gt_thread_callback(rb_event_flag_t event, const rb_internal_thread_e
 }
 
 void Init_instrumentation(void) {
+#ifdef HAVE_RB_INTERNAL_THREAD_SPECIFIC_GET // 3.3+
+    thread_storage_key = rb_internal_thread_specific_key_create();
+#endif
+
     VALUE rb_mGVLTools = rb_const_get(rb_cObject, rb_intern("GVLTools"));
 
     VALUE rb_mNative = rb_const_get(rb_mGVLTools, rb_intern("Native"));

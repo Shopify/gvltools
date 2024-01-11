@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+- Fixed compatibility with Ruby 3.3.0.
+
 ## [0.3.0] - 2023-04-11
 
 - Automatically reset the `WaitingThreads` counter when enabling it (#7).
