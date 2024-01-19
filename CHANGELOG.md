@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [0.4.0] - 2024-01-19
+
 - Fixed compatibility with Ruby 3.3.0.
 - Added `GVLTools::LocalTimer.for(thread)` to access another thread counter (Ruby 3.3+ only).
 
