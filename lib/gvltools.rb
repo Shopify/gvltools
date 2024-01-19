@@ -70,7 +70,7 @@ module GVLTools
     end
   end
 
-  module LocalTimer
+  class LocalTimer
     extend AbstractInstrumenter
 
     class << self

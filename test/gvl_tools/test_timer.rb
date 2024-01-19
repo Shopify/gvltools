@@ -53,5 +53,26 @@ module GVLTools
       thread_local_time = spawn_thread { LocalTimer.monotonic_time }.join.value
       assert_predicate thread_local_time, :zero?
     end
+
+    if RUBY_VERSION >= "3.3"
+      def test_local_timer_for_other_thread
+        LocalTimer.enable
+
+        threads = 5.times.map do
+          spawn_thread do
+            cpu_work
+            LocalTimer.monotonic_time
+          end
+        end
+        cpu_work
+        timers = threads.each(&:join).to_h { |t| [t, t.value] }
+        external_timers = threads.to_h { |t| [t, LocalTimer.for(t).monotonic_time] }
+        assert_equal timers, external_timers
+      end
+    else
+      def test_local_timer_for_other_thread
+        refute_respond_to LocalTimer, :for
+      end
+    end
   end
 end

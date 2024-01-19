@@ -59,6 +59,26 @@ class GVLInstrumentationMiddleware
 end
 ```
 
+Starting from Ruby 3.3, a thread local timer can be accessed from another thread:
+
+```ruby
+def fibonacci(n)
+  if n < 2
+    n
+  else
+    fibonacci(n - 1) + fibonacci(n - 2)
+  end
+end
+
+GVLTools::LocalTimer.enable
+thread = Thread.new do
+  fibonacci(20)
+end
+thread.join(1)
+local_timer = GVLTools::LocalTimer.for(thread)
+local_timer.monotonic_time # => 127000
+```
+
 ### GlobalTimer
 
 `GlobalTimer` records the overall time spent waiting on the GVL by all threads combined.

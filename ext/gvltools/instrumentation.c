@@ -5,6 +5,8 @@
 
 typedef unsigned long long counter_t;
 
+VALUE rb_cLocalTimer = Qnil;
+
 // Metrics
 static rb_internal_thread_event_hook_t *gt_hook = NULL;
 
@@ -17,8 +19,8 @@ static unsigned int enabled_mask = 0;
 
 typedef struct {
     bool was_ready;
-    counter_t timer_total;
-    counter_t waiting_threads_ready_generation;
+    _Atomic counter_t timer_total;
+    _Atomic counter_t waiting_threads_ready_generation;
     struct timespec timer_ready_at;
 } thread_local_state;
 
@@ -42,7 +44,7 @@ static const rb_data_type_t thread_local_state_type = {
 static inline thread_local_state *GT_LOCAL_STATE(VALUE thread, bool allocate) {
     thread_local_state *state = rb_internal_thread_specific_get(thread, thread_storage_key);
     if (!state && allocate) {
-        VALUE wrapper = TypedData_Make_Struct(rb_cObject, thread_local_state, &thread_local_state_type, state);
+        VALUE wrapper = TypedData_Make_Struct(rb_cLocalTimer, thread_local_state, &thread_local_state_type, state);
         rb_thread_local_aset(thread, rb_intern("__gvltools_local_state"), wrapper);
         RB_GC_GUARD(wrapper);
         rb_internal_thread_specific_set(thread, thread_storage_key, state);
@@ -124,14 +126,34 @@ static VALUE global_timer_reset(VALUE module) {
     return Qtrue;
 }
 
-static VALUE local_timer_monotonic_time(VALUE module) {
+static VALUE local_timer_m_monotonic_time(VALUE module) {
     return ULL2NUM(GT_CURRENT_THREAD_LOCAL_STATE()->timer_total);
 }
 
-static VALUE local_timer_reset(VALUE module) {
+static VALUE local_timer_m_reset(VALUE module) {
     GT_CURRENT_THREAD_LOCAL_STATE()->timer_total = 0;
     return Qtrue;
 }
+
+#ifdef HAVE_RB_INTERNAL_THREAD_SPECIFIC_GET
+static VALUE local_timer_for(VALUE module, VALUE thread) {
+    GT_LOCAL_STATE(thread, true);
+    return rb_thread_local_aref(thread, rb_intern("__gvltools_local_state"));
+}
+
+static VALUE local_timer_monotonic_time(VALUE timer) {
+    thread_local_state *state;
+    TypedData_Get_Struct(timer, thread_local_state, &thread_local_state_type, state);
+    return ULL2NUM(state->timer_total);
+}
+
+static VALUE local_timer_reset(VALUE timer) {
+    thread_local_state *state;
+    TypedData_Get_Struct(timer, thread_local_state, &thread_local_state_type, state);
+    state->timer_total = 0;
+    return Qtrue;
+}
+#endif
 
 // Thread counts
 static _Atomic counter_t waiting_threads_total = 0;
@@ -157,6 +179,7 @@ static void gt_thread_callback(rb_event_flag_t event, const rb_internal_thread_e
         }
         break;
         case RUBY_INTERNAL_THREAD_EVENT_EXITED: {
+#ifndef HAVE_RB_INTERNAL_THREAD_SPECIFIC_GET
             thread_local_state *state = GT_EVENT_LOCAL_STATE(event_data, false);
             if (state) {
                 // MRI can re-use native threads, so we need to reset thread local state,
@@ -164,6 +187,7 @@ static void gt_thread_callback(rb_event_flag_t event, const rb_internal_thread_e
                 state->was_ready = false;
                 state->timer_total = 0;
             }
+#endif
         }
         break;
         case RUBY_INTERNAL_THREAD_EVENT_READY: {
@@ -229,9 +253,16 @@ void Init_instrumentation(void) {
     rb_define_singleton_method(rb_mGlobalTimer, "reset", global_timer_reset, 0);
     rb_define_singleton_method(rb_mGlobalTimer, "monotonic_time", global_timer_monotonic_time, 0);
 
-    VALUE rb_mLocalTimer = rb_const_get(rb_mGVLTools, rb_intern("LocalTimer"));
-    rb_define_singleton_method(rb_mLocalTimer, "reset", local_timer_reset, 0);
-    rb_define_singleton_method(rb_mLocalTimer, "monotonic_time", local_timer_monotonic_time, 0);
+    rb_global_variable(&rb_cLocalTimer);
+    rb_cLocalTimer = rb_const_get(rb_mGVLTools, rb_intern("LocalTimer"));
+    rb_undef_alloc_func(rb_cLocalTimer);
+    rb_define_singleton_method(rb_cLocalTimer, "reset", local_timer_m_reset, 0);
+    rb_define_singleton_method(rb_cLocalTimer, "monotonic_time", local_timer_m_monotonic_time, 0);
+#ifdef HAVE_RB_INTERNAL_THREAD_SPECIFIC_GET
+    rb_define_singleton_method(rb_cLocalTimer, "for", local_timer_for, 1);
+    rb_define_method(rb_cLocalTimer, "reset", local_timer_reset, 0);
+    rb_define_method(rb_cLocalTimer, "monotonic_time", local_timer_monotonic_time, 0);
+#endif
 
     VALUE rb_mWaitingThreads = rb_const_get(rb_mGVLTools, rb_intern("WaitingThreads"));
     rb_define_singleton_method(rb_mWaitingThreads, "_reset", waiting_threads_reset, 0);
