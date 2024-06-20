@@ -44,6 +44,7 @@ It is particularly useful to detect wether an application use too many threads, 
 For instance as a Rack middleware:
 
 ```ruby
+# lib/gvl_instrumentation_middleware.rb
 class GVLInstrumentationMiddleware
   def initialize(app)
     @app = app
@@ -57,6 +58,10 @@ class GVLInstrumentationMiddleware
     response
   end
 end
+
+# config/application.rb
+GVLTools::LocalTimer.enable
+config.middleware.use GvlInstrumentationMiddleware
 ```
 
 Starting from Ruby 3.3, a thread local timer can be accessed from another thread:
