@@ -61,7 +61,7 @@ end
 
 # config/application.rb
 GVLTools::LocalTimer.enable
-config.middleware.use GvlInstrumentationMiddleware
+config.middleware.use GVLInstrumentationMiddleware
 ```
 
 Starting from Ruby 3.3, a thread local timer can be accessed from another thread:
