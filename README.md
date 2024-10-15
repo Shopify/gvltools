@@ -61,6 +61,7 @@ end
 
 # config/application.rb
 GVLTools::LocalTimer.enable
+require "gvl_instrumentation_middleware"
 config.middleware.use GVLInstrumentationMiddleware
 ```
 
