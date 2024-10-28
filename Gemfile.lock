@@ -20,8 +20,7 @@ GEM
     rake-compiler (1.2.0)
       rake
     regexp_parser (2.9.0)
-    rexml (3.3.6)
-      strscan
+    rexml (3.3.9)
     rubocop (1.62.1)
       json (~> 2.3)
       language_server-protocol (>= 3.17.0)
@@ -36,7 +35,6 @@ GEM
     rubocop-ast (1.31.2)
       parser (>= 3.3.0.4)
     ruby-progressbar (1.13.0)
-    strscan (3.1.0)
     unicode-display_width (2.5.0)
 
 PLATFORMS
