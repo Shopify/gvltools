@@ -2,6 +2,8 @@
 
 module StrictWarnings
   def warn(message)
+    return if message.include?("redefining 'object_id' may cause serious problems") # From minitest
+
     raise message
   end
 end
