@@ -20,7 +20,7 @@ GEM
     rake-compiler (1.2.0)
       rake
     regexp_parser (2.9.0)
-    rexml (3.3.9)
+    rexml (3.4.2)
     rubocop (1.62.1)
       json (~> 2.3)
       language_server-protocol (>= 3.17.0)
