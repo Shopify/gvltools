@@ -26,6 +26,7 @@ typedef struct {
 
 #ifdef HAVE_RB_INTERNAL_THREAD_SPECIFIC_GET // 3.3+
 static int thread_storage_key = 0;
+static ID id_local_state;
 
 static size_t thread_local_state_memsize(const void *data) {
     return sizeof(thread_local_state);
@@ -45,7 +46,8 @@ static inline thread_local_state *GT_LOCAL_STATE(VALUE thread, bool allocate) {
     thread_local_state *state = rb_internal_thread_specific_get(thread, thread_storage_key);
     if (!state && allocate) {
         VALUE wrapper = TypedData_Make_Struct(rb_cLocalTimer, thread_local_state, &thread_local_state_type, state);
-        rb_thread_local_aset(thread, rb_intern("__gvltools_local_state"), wrapper);
+        // Anchor to the thread object, not fiber-local storage, so it outlives the allocating fiber.
+        rb_ivar_set(thread, id_local_state, wrapper);
         RB_GC_GUARD(wrapper);
         rb_internal_thread_specific_set(thread, thread_storage_key, state);
     }
@@ -138,7 +140,7 @@ static VALUE local_timer_m_reset(VALUE module) {
 #ifdef HAVE_RB_INTERNAL_THREAD_SPECIFIC_GET
 static VALUE local_timer_for(VALUE module, VALUE thread) {
     GT_LOCAL_STATE(thread, true);
-    return rb_thread_local_aref(thread, rb_intern("__gvltools_local_state"));
+    return rb_ivar_get(thread, id_local_state);
 }
 
 static VALUE local_timer_monotonic_time(VALUE timer) {
@@ -240,6 +242,7 @@ static void gt_thread_callback(rb_event_flag_t event, const rb_internal_thread_e
 void Init_instrumentation(void) {
 #ifdef HAVE_RB_INTERNAL_THREAD_SPECIFIC_GET // 3.3+
     thread_storage_key = rb_internal_thread_specific_key_create();
+    id_local_state = rb_intern("__gvltools_local_state");
 #endif
 
     VALUE rb_mGVLTools = rb_const_get(rb_cObject, rb_intern("GVLTools"));
