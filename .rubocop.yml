@@ -24,6 +24,9 @@ Style/GlobalVars:
 Style/EmptyMethod:
   Enabled: false
 
+Naming/PredicateMethod:
+  Enabled: false
+
 Style/IfUnlessModifier:
   Enabled: false
 
