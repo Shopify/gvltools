@@ -1,12 +1,10 @@
 # frozen_string_literal: true
 
 require "mkmf"
-if RUBY_ENGINE == "ruby" &&
-   have_header("stdatomic.h") &&
-   have_func("rb_internal_thread_add_event_hook", ["ruby/thread.h"]) # 3.1+
-
+# required_ruby_version (>= 3.3.0) guarantees the 3.3+ internal thread APIs on
+# CRuby, so we only need to rule out other engines and missing stdatomic support.
+if RUBY_ENGINE == "ruby" && have_header("stdatomic.h")
   $CFLAGS << " -O3 -Wall "
-  have_func("rb_internal_thread_specific_get", "ruby/thread.h") # 3.3+
   create_makefile("gvltools/instrumentation")
 else
   File.write("Makefile", dummy_makefile($srcdir).join)

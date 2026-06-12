@@ -24,7 +24,6 @@ typedef struct {
     struct timespec timer_ready_at;
 } thread_local_state;
 
-#ifdef HAVE_RB_INTERNAL_THREAD_SPECIFIC_GET // 3.3+
 static int thread_storage_key = 0;
 
 static size_t thread_local_state_memsize(const void *data) {
@@ -54,21 +53,6 @@ static inline thread_local_state *GT_LOCAL_STATE(VALUE thread, bool allocate) {
 
 #define GT_EVENT_LOCAL_STATE(event_data, allocate) GT_LOCAL_STATE(event_data->thread, allocate)
 #define GT_CURRENT_THREAD_LOCAL_STATE() GT_LOCAL_STATE(rb_thread_current(), true)
-#else
-#if __STDC_VERSION__ >= 201112
-  #define THREAD_LOCAL_SPECIFIER _Thread_local
-#elif defined(__GNUC__) && !defined(RB_THREAD_LOCAL_SPECIFIER_IS_UNSUPPORTED)
-  /* note that ICC (linux) and Clang are covered by __GNUC__ */
-  #define THREAD_LOCAL_SPECIFIER __thread
-#endif
-
-static THREAD_LOCAL_SPECIFIER thread_local_state __thread_local_state = {0};
-#undef THREAD_LOCAL_SPECIFIER
-
-#define GT_LOCAL_STATE(thread) (&__thread_local_state)
-#define GT_EVENT_LOCAL_STATE(event_data, allocate) (&__thread_local_state)
-#define GT_CURRENT_THREAD_LOCAL_STATE() (&__thread_local_state)
-#endif
 
 // Common
 #define SECONDS_TO_NANOSECONDS (1000 * 1000 * 1000)
@@ -96,7 +80,7 @@ static VALUE gt_enable_metric(VALUE module, VALUE metric) {
     if (!gt_hook) {
         gt_hook = rb_internal_thread_add_event_hook(
             gt_thread_callback,
-            RUBY_INTERNAL_THREAD_EVENT_STARTED | RUBY_INTERNAL_THREAD_EVENT_EXITED | RUBY_INTERNAL_THREAD_EVENT_READY | RUBY_INTERNAL_THREAD_EVENT_RESUMED,
+            RUBY_INTERNAL_THREAD_EVENT_STARTED | RUBY_INTERNAL_THREAD_EVENT_READY | RUBY_INTERNAL_THREAD_EVENT_RESUMED,
             NULL
         );
     }
@@ -135,7 +119,6 @@ static VALUE local_timer_m_reset(VALUE module) {
     return Qtrue;
 }
 
-#ifdef HAVE_RB_INTERNAL_THREAD_SPECIFIC_GET
 static VALUE local_timer_for(VALUE module, VALUE thread) {
     GT_LOCAL_STATE(thread, true);
     return rb_thread_local_aref(thread, rb_intern("__gvltools_local_state"));
@@ -153,7 +136,6 @@ static VALUE local_timer_reset(VALUE timer) {
     state->timer_total = 0;
     return Qtrue;
 }
-#endif
 
 // Thread counts
 static _Atomic counter_t waiting_threads_total = 0;
@@ -176,18 +158,6 @@ static void gt_thread_callback(rb_event_flag_t event, const rb_internal_thread_e
             // The STARTED event is triggered from the parent thread with the GVL held
             // so we can allocate the struct.
             GT_EVENT_LOCAL_STATE(event_data, true);
-        }
-        break;
-        case RUBY_INTERNAL_THREAD_EVENT_EXITED: {
-#ifndef HAVE_RB_INTERNAL_THREAD_SPECIFIC_GET
-            thread_local_state *state = GT_EVENT_LOCAL_STATE(event_data, false);
-            if (state) {
-                // MRI can re-use native threads, so we need to reset thread local state,
-                // otherwise it will leak from one Ruby thread from another.
-                state->was_ready = false;
-                state->timer_total = 0;
-            }
-#endif
         }
         break;
         case RUBY_INTERNAL_THREAD_EVENT_READY: {
@@ -238,9 +208,7 @@ static void gt_thread_callback(rb_event_flag_t event, const rb_internal_thread_e
 }
 
 void Init_instrumentation(void) {
-#ifdef HAVE_RB_INTERNAL_THREAD_SPECIFIC_GET // 3.3+
     thread_storage_key = rb_internal_thread_specific_key_create();
-#endif
 
     VALUE rb_mGVLTools = rb_const_get(rb_cObject, rb_intern("GVLTools"));
 
@@ -258,11 +226,9 @@ void Init_instrumentation(void) {
     rb_undef_alloc_func(rb_cLocalTimer);
     rb_define_singleton_method(rb_cLocalTimer, "reset", local_timer_m_reset, 0);
     rb_define_singleton_method(rb_cLocalTimer, "monotonic_time", local_timer_m_monotonic_time, 0);
-#ifdef HAVE_RB_INTERNAL_THREAD_SPECIFIC_GET
     rb_define_singleton_method(rb_cLocalTimer, "for", local_timer_for, 1);
     rb_define_method(rb_cLocalTimer, "reset", local_timer_reset, 0);
     rb_define_method(rb_cLocalTimer, "monotonic_time", local_timer_monotonic_time, 0);
-#endif
 
     VALUE rb_mWaitingThreads = rb_const_get(rb_mGVLTools, rb_intern("WaitingThreads"));
     rb_define_singleton_method(rb_mWaitingThreads, "_reset", waiting_threads_reset, 0);

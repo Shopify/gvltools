@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+- Require Ruby 3.3+.
+
 ## [0.4.0] - 2024-01-19
 
 - Fixed compatibility with Ruby 3.3.0.

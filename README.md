@@ -4,9 +4,7 @@ Set of GVL instrumentation tools
 
 ## Requirements
 
-GVLTools uses the GVL instrumentation API added in Ruby 3.2.0.
-
-To make it easier to use, on older Rubies the gem will install and expose the same methods, but they won't have any effect and all metrics will report `0`.
+GVLTools uses the GVL instrumentation API and the thread-specific storage API, and requires Ruby 3.3+.
 
 ## Installation
 
