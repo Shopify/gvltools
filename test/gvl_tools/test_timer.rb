@@ -55,6 +55,18 @@ module GVLTools
     end
 
     if RUBY_VERSION >= "3.3"
+      def test_local_timer_fiber_allocation
+        refute_predicate LocalTimer, :enabled?
+
+        value = spawn_thread do
+          Fiber.new { LocalTimer.monotonic_time }.resume
+          GC.start
+          LocalTimer.monotonic_time
+        end.join.value
+
+        assert_equal 0, value
+      end
+
       def test_local_timer_for_other_thread
         LocalTimer.enable
 
