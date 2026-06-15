@@ -101,6 +101,20 @@ static VALUE gt_enable_metric(VALUE module, VALUE metric) {
             RUBY_INTERNAL_THREAD_EVENT_STARTED | RUBY_INTERNAL_THREAD_EVENT_EXITED | RUBY_INTERNAL_THREAD_EVENT_READY | RUBY_INTERNAL_THREAD_EVENT_RESUMED,
             NULL
         );
+
+#ifdef HAVE_RB_INTERNAL_THREAD_SPECIFIC_GET
+        // Eagerly allocate the per-thread state for every thread that already
+        // exists at enable time. Threads created later get their state allocated from the
+        // STARTED event (also GVL-held). This guarantees the RESUMED event always finds an
+        // existing state and never has to allocate. Allocating from RESUMED is
+        // illegal because it doesn't necessarily run with the GVL.
+        VALUE threads = rb_funcall(rb_const_get(rb_cObject, rb_intern("Thread")), rb_intern("list"), 0);
+        long count = RARRAY_LEN(threads);
+        for (long i = 0; i < count; i++) {
+            GT_LOCAL_STATE(RARRAY_AREF(threads, i), true);
+        }
+        RB_GC_GUARD(threads);
+#endif
     }
     return Qtrue;
 }
@@ -209,9 +223,9 @@ static void gt_thread_callback(rb_event_flag_t event, const rb_internal_thread_e
             }
         }
         break;
-        case RUBY_INTERNAL_THREAD_EVENT_RESUMED: {
-            thread_local_state *state = GT_EVENT_LOCAL_STATE(event_data, true);
-            if (!state->was_ready)  {
+        case RUBY_INTERNAL_THREAD_EVENT_RESUMED: { // Must not allocate
+            thread_local_state *state = GT_EVENT_LOCAL_STATE(event_data, false);
+            if (!state || !state->was_ready)  {
                 break; // In case we registered the hook while some threads were already waiting on the GVL
             }
 
