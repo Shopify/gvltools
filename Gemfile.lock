@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    gvltools (0.4.0)
+    gvltools (0.5.0)
 
 GEM
   remote: https://rubygems.org/
@@ -52,3 +52,6 @@ DEPENDENCIES
   rake
   rake-compiler
   rubocop (~> 1.21)
+
+BUNDLED WITH
+   2.5.3

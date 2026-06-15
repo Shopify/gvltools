@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [0.5.0] - 2026-06-15
+
 - Fixed a `LocalTimer` deadlock with fiber schedulers by not allocating (and potentially triggering GC) during the `RESUMED` event (#34).
 - Store the `LocalTimer` counter in a thread instance variable instead of fiber-local storage, so it is shared across fibers of the same thread (#37).
 
