@@ -45,6 +45,7 @@ For instance as a Rack middleware:
 
 ```ruby
 # lib/gvl_instrumentation_middleware.rb
+
 class GVLInstrumentationMiddleware
   def initialize(app)
     @app = app
@@ -58,9 +59,13 @@ class GVLInstrumentationMiddleware
     response
   end
 end
+```
 
-# config/application.rb
+```ruby
+# config/initializers/gvl_instrumentation.rb
+
 GVLTools::LocalTimer.enable
+
 require "gvl_instrumentation_middleware"
 config.middleware.use GVLInstrumentationMiddleware
 ```
